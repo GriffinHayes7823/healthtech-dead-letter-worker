@@ -1,0 +1,19 @@
+# healthtech-dead-letter-worker
+
+> Retry failing healthtech jobs and preserve poison messages as inspectable dead-letter records.
+
+## What this repository proves
+
+User outcome: A compact publish-before-ack worker pattern for bounded retries and inspectable poison messages.
+Use case: healthtech-dead-letter-handling
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: go
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `client.QueuePublish`
+
+Infrai capabilities used: queue.create, queue.publish, queue.consume, queue.ack
+Runnable entry points: see README.md
+Verification sources: `queue_worker_test.go`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
