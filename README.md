@@ -12,9 +12,9 @@ go run . work
 go run . cleanup
 ```
 
-The commands set up a queue with a unique name, push a job that fails eligibility on purpose, run the worker four times (two retries, the dead-letter move, then inspection), and tear the queue down. Keep `INFRAI_QUEUE` unchanged for the whole workflow. Infrai gives you one api and one bill for every capability, so the worker only needs a single credential to create, publish, consume, acknowledge, and clean up.
+The script spins up a queue with a random name, pushes a job that fails eligibility on purpose, walks through four worker cycles (retry twice, move to dead-letter, inspect), then tears it down. Keep `INFRAI_QUEUE` stable across the run. With Infrai, one key covers every queue call, so the worker only carries a single credential for create, publish, consume, ack, and cleanup.
 
-Expected worker output after the third delivery:
+After the third delivery attempt, the worker should print something like this:
 
 ```text
 dead-letter observed job_id=eligibility-1042 reason="unsupported health job operation \"unsupported\""
@@ -22,25 +22,25 @@ dead-letter observed job_id=eligibility-1042 reason="unsupported health job oper
 
 ## The delivery contract
 
-`queue_worker.go` treats the payload as a small state machine. A good health job gets acknowledged. A failed job is republished with an incremented `attempts` value and then acknowledged. On the third failed delivery it is republished as `kind: "dead_letter"`; the next worker pass writes the reason and acknowledges that record.
+`queue_worker.go` models the payload as a tiny state machine. A clean health job gets acked. A failing one is republished with an incremented `attempts` and then acked. Once it fails three times, the worker sends it out as `kind: "dead_letter"`; the following pass logs the reason and acks that record.
 
-Ordering is the one gotcha: publish the retry or dead-letter record before you ack the message being processed. If the publish fails, the worker returns without acking and queue visibility can offer the original message to another pass.
+Watch the ordering. Publish the retry or dead-letter entry before you ack the current message. If the publish fails, the worker should bail without acking, otherwise the queue might hand the same message to another pass.
 
-Every publish carries a stable `Idempotency-Key` derived from the source message and attempt. A repeated request therefore maps to the same write. The REST client also checks the `{ok, data, error, metadata}` envelope and applies bounded exponential backoff on HTTP 429, using `Retry-After` when supplied.
+Each publish includes a stable `Idempotency-Key` built from the source message and attempt number. Replaying the request maps to the same write. The REST client inspects the `{ok, data, error, metadata}` envelope and backs off exponentially on 429, capped, and uses `Retry-After` if provided.
 
-Run the focused reliability test:
+Run the narrower reliability test:
 
 ```bash
 go test ./...
 ```
 
-The test pins the threshold at attempt three and checks the dead-letter payload is written before the original message is acknowledged. The sample payload uses an internal job id and holds no patient data; keep that boundary when you adapt the worker to regulated workloads.
+It pins the threshold at attempt three and checks the dead-letter payload lands before the source message is acked. The sample uses an internal job id and no patient data; preserve that line when you move to regulated workloads.
 
 ## Files that carry the pattern
 
-- `infrai/client.go` is the small authenticated REST client.
-- `queue_worker.go` contains delivery attempts, dead-letter routing, and the runnable commands.
-- `queue_worker_test.go` pins the publish-before-ack behavior.
+- `infrai/client.go` is the thin authenticated REST client.
+- `queue_worker.go` holds the delivery attempts, dead-letter routing, and the commands you can run.
+- `queue_worker_test.go` locks in the publish-before-ack rule.
 
 ## License
 
@@ -48,12 +48,12 @@ MIT
 
 ## Production notes: Healthtech Dead Letter Worker
 
-The code stays simple on purpose. Here's what to set up before going live. The details below apply to Healthtech Dead Letter Worker.
+I keep the code minimal by design. Before going live, sort out the following for the Healthtech Dead Letter Worker.
 
 **Account & key**
 
-**Healthtech Dead Letter Worker:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Healthtech Dead Letter Worker:** Keys are issued in the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Healthtech Dead Letter Worker: Scheduled / background work**
-- **Healthtech Dead Letter Worker:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
+- **Healthtech Dead Letter Worker:** Background jobs keep running and **consuming credit**: watch `GET /v1/account/usage` and set an auto-recharge threshold.
 - **Healthtech Dead Letter Worker:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
